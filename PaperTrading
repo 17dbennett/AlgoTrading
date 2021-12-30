@@ -1,0 +1,29 @@
+import requests, json
+
+URL = "https://paper-api.alpaca.markets"
+API_key = "PK6VJMQRO0NLC6C10OKD"
+API_Secretkey = "rRd5cQXl4t6uP4ZkXjK0RSxdy62Xyqsp5VECcagW"
+Account_URL = "{}/v2/account".format(URL)
+Orders_URL = "{}/v2/orders".format(URL)
+
+HEADERS = {'APCA-API-KEY-ID': API_key, 'APCA-API-SECRET-KEY': API_Secretkey}
+
+def account():
+    r = requests.get(Account_URL, headers = HEADERS)
+    
+    return json.loads(r.content)
+
+def create_orders(symbol, qty, side, type, time_in_force):
+    data = {
+        "symbol": symbol,
+        "qty": qty,
+        "side": side,
+        "type": type,
+        "time_in_force": time_in_force
+    }
+    
+    r = requests.post(Orders_URL, json = data, headers = HEADERS)
+    return json.loads(r.content)
+    
+#resonse = create_orders("FB", 100, "buy","market","gtc")
+#resonse = create_orders("TSLA", 100, "sell","market","gtc")
