@@ -1,0 +1,297 @@
+#import all the needed packages
+import json, requests,pandas as pd, time, datetime as dt
+from AlpacaPaperTrade import *
+
+#create a simulation for trading
+class StockTrading():
+    def __init__(self, ticker, daysavg = 5, results = {}, allresults = {}):
+        self.ticker = ticker
+        self.daysavg = daysavg
+        self.highest_ticker = ""
+        self.highest_methode = ""
+        self.highest_return = -100000
+        self.key1 = 'Time Series (Daily)'
+        self.key3= '4. close'
+        self.url = 'http://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol='+self.ticker+'&outputsize=full&apikey=NG9C9EPVYBMQT0C8'
+        self.prices = []
+        self.results = results
+        self.allresults = allresults
+        self.updateCSV()
+        self.create_df()
+        self.MR()
+        self.CMA()
+        self.NoShortCMA()
+        self.SaveResults()
+  # update my CSV to latest data  
+    def updateCSV(self):
+        csv_file = open("final_project/data/"+ticker+ ".csv", "a")
+        last_date = open("final_project/data/"+ticker+ ".csv").readlines()[-1].split(",")[0] # find the last date uploaded to the CSV
+        d = json.loads(requests.get(self.url).text)
+        newdate = []
+        newprices = []
+        for date in d[self.key1]:# compare the dates then add the dates to the CSV
+            if last_date <  date:
+                newdate.append(date)
+                newprices.append(d[self.key1][date][self.key3])
+        newdate.reverse()
+        newprices.reverse()
+        print("Added to prices for the following dates",newdate) # print the new dates that were added.
+        for i in range(len(newdate)):
+            csv_file.write(str(newdate[i] +","+ newprices[i]+"\n"))
+        
+        csv_file.close()
+        time.sleep(15)
+        
+  # create the dataframe to use analysis      
+    def create_df(self):
+        self.ticker_df = pd.read_csv("final_project/data/" +self.ticker + '.csv')
+        #print(self.ticker_df)
+        
+ #Mean Reversion with shorting
+    def MR(self):
+        print("---", ticker, "---MR")
+        can_buy = 0 # 0 is true, 1 is false
+        can_sell = 0
+        buy_price = 0
+        sell_price =0
+        total = 0
+        gain = 0
+        first_buy = 0
+        for i in range(len(self.ticker_df)):
+            if i > self.daysavg:
+                
+                #create the average -
+                avg = self.ticker_df['close'].rolling(window = self.daysavg).mean()
+        #buy
+                if self.ticker_df['close'][i] < avg[i] * .95:
+                    if can_buy == 0: #implement short selling.
+                        buy_price = self.ticker_df['close'][i]
+                        can_buy = 1
+                        if i == (len(self.ticker_df)-1):
+                            print(self.ticker, "buy today at: ", buy_price)
+                            #order = create_orders(self.ticker, 10, "buy","market","gtc")
+                        if first_buy ==0:
+                            first_buy = buy_price
+                        
+                        
+                    elif can_sell != 0:
+                        buy_price = self.ticker_df['close'][i]
+                        gain = sell_price - buy_price
+                        #print("SHORT SELL - Bought at: ", buy_price, " Sell at", sell_price, "GAIN :", round(gain,2))
+                        total += gain
+                        can_sell = 0
+                        can_buy = 0
+                        if i == (len(self.ticker_df)-1):
+                            print(self.ticker, "buy today at: ", buy_price)
+                            #order = create_orders(self.ticker, 10, "buy","market","gtc")
+                        
+        #Sell                
+                if self.ticker_df['close'][i] > avg[i] * 1.05:
+                    if can_sell == 0:
+                        sell_price = self.ticker_df['close'][i]
+                        can_sell = 1
+                        if i == (len(self.ticker_df)-1):
+                            print(self.ticker, "sell today at: ", buy_price)
+                            #order = create_orders(self.ticker, 10, "sell","market","gtc")
+                        
+                    elif can_buy != 0:
+                        sell_price = self.ticker_df['close'][i]
+                        #print("Bought at: ", buy_price, " Sell at", sell_price, "-GAIN :", round(gain,2))
+                        gain = sell_price - buy_price
+                        total += gain
+                        can_buy = 0
+                        can_sell = 0
+                        if i == (len(self.ticker_df)-1):
+                            print(self.ticker, "sell today at: ", buy_price)
+                            #order = create_orders(self.ticker, 10, "buy","market","gtc")
+                        
+                # if self.ticker_df['close'][i] > avg[i]:
+                    
+        try:
+            percent_return = round((total/first_buy)*100,2)
+        except:
+            percent_return = "NA"           
+        self.results[ticker +"_Results_MR"] = "total gain for Mean Reversion is $" + str(round(total,2))+ "  %"+str(percent_return)
+        print("Your total gain for Mean Reversion is $",str(round(total,2)), " %"+str(percent_return))
+        if percent_return > self.highest_return:
+            self.highest_return = percent_return
+            self.highest_methode = "MR"
+            self.highest_ticker = self.ticker
+
+ # Cross over Moving Average with shorting
+    def CMA(self):
+        print("---", ticker, "---CMA")
+        can_buy = 0 # 0 is true, 1 is false
+        can_sell = 0
+        buy_price = 0
+        sell_price =0
+        total = 0
+        gain = 0
+        first_buy = 0
+        for i in range(len(self.ticker_df)):
+            avg = self.ticker_df['close'].rolling(window = self.daysavg).mean()
+        #BUY
+            if self.ticker_df['close'][i] > avg[i]:
+                if can_buy == 0: #implement short selling.
+                    buy_price = self.ticker_df['close'][i]
+                    can_buy = 1
+                    can_sell = 0
+                    if i == (len(self.ticker_df)-1):
+                        print(self.ticker, "buy today at: ", buy_price)
+                        #order = create_orders(self.ticker, 10, "buy","market","gtc")
+                    if first_buy == 0:
+                        first_buy = buy_price
+                        
+                elif can_sell != 0:
+                    buy_price = self.ticker_df['close'][i]
+                    #print("SHORT SELL - Sell at", sell_price, " Bought at: ", buy_price, "GAIN :", round(gain,2))
+                    gain = sell_price - buy_price
+                    total += gain
+                    can_sell = 0
+                    can_buy = 0
+                    if i == (len(self.ticker_df)-1):
+                        print(self.ticker, "buy today at: ", buy_price)
+                        #order = create_orders(self.ticker, 10, "buy","market","gtc")
+                    
+        #SELL       
+            if self.ticker_df['close'][i] < avg[i]:
+                if can_sell == 0:
+                    sell_price = self.ticker_df['close'][i]
+                    can_sell = 1
+                    if i == (len(self.ticker_df)-1):
+                        print(self.ticker, "sell today at: ", buy_price)
+                        #order = create_orders(self.ticker, 10, "sell","market","gtc")
+                    
+                        
+                elif can_buy != 0:
+                    sell_price = self.ticker_df['close'][i]
+                    #print("Bought at: ", buy_price, " Sell at", sell_price, "GAIN :", round(gain,2))
+                    gain = sell_price - buy_price
+                    total += gain
+                    can_buy = 0
+                    can_sell = 0
+                    if i == (len(self.ticker_df)-1):
+                        print(self.ticker, "sell today at: ", buy_price)
+                        #order = create_orders(self.ticker, 10, "sell","market","gtc")
+
+                    
+           
+        try:
+            percent_return = round((total/first_buy)*100,2)
+        except:
+            percent_return = "NA" 
+        self.results[ticker +"_Results_CMA"] = "total gain for Cross Over Strategy is $"+ str(round(total,2))+ "  %"+str(percent_return)
+        print("Your total gain for Cross Over Strategy is $", str(round(total,2)), " %"+str(percent_return))
+        if percent_return > self.highest_return:
+            self.highest_return = percent_return
+            self.highest_methode = "CR"
+            self.highest_ticker = self.ticker
+
+ # No shorting Cross over moving average       
+    def NoShortCMA(self):
+        print("---", ticker, "--- NoShortCMA")
+        can_buy = 0 # 0 is true, 1 is false
+        can_sell = 1
+        buy_price = 0
+        sell_price = 0
+        total = 0
+        gain = 0
+        first_buy = 0
+        for i in range(self.daysavg,len(self.ticker_df)):
+            avg = self.ticker_df['close'].rolling(window = self.daysavg).mean()
+        #BUY
+            if self.ticker_df['close'][i] > avg[i] and can_buy == 0:
+                buy_price = self.ticker_df['close'][i]
+                can_buy = 1
+                can_sell = 0
+                if i == (len(self.ticker_df)-1):
+                    print(self.ticker, "buy today at: ", buy_price)
+                    order = create_orders(self.ticker, 10, "buy","market","gtc")
+                if first_buy == 0:
+                    first_buy = buy_price
+                    first_buy_date = self.ticker_df['date'][i]
+                
+                        
+        #SELL       
+            if self.ticker_df['close'][i] < avg[i] and can_sell == 0:
+                sell_price = self.ticker_df['close'][i]
+                gain = sell_price - buy_price
+                total += gain
+                #print("Bought at: ", buy_price, " Sell at", sell_price, "GAIN :", round(gain,2))
+                can_sell = 1
+                can_buy = 0
+                if i == (len(self.ticker_df)-1):
+                    print(self.ticker, "sell today at: ", buy_price)
+                    order = create_orders(self.ticker, 10, "sell","market","gtc")
+                
+        try:
+            percent_return = round((total/first_buy)*100,2)
+        except:
+            percent_return = "NA"
+        self.results[ticker +"_NoShortCMA"] = "total gain for No Short Cross Over Strategy is $"+ str(round(total,2))+ "  %"+str(percent_return)
+        print("Your total gain for No Short Cross Over Strategy is $", str(round(total,2)), " %"+str(percent_return))
+        #print("Your first buy was", first_buy, " on date: ", first_buy_date )
+        if percent_return > self.highest_return:
+            self.highest_return = percent_return
+            self.highest_methode = "NoShortCMA"
+            self.highest_ticker = self.ticker
+            
+ # calculate the highest/best strategy          
+    def highest(self):
+        return self.highest_return, self.highest_methode, self.highest_ticker
+        
+ # save the results for each ticker   
+    def SaveResults(self):
+        self.allresults["Results"] = self.results
+        out_file = open("final_project/Results.json", "w+")
+        json.dump(self.allresults,out_file, indent = 4)
+        
+ # set variables for highest out side of the class so i can find the highest.       
+highest_r = -10000
+highest_m = ""
+highest_t = ""
+#tickers = ["TSLA", "FB", "RIVN"] 
+#set tickers used for running these trading strategies
+tickers = ["FB","TSLA", "KO", "PEP", "AAPL", "GOOGL", "RIVN", "DIS", "TMO", "DHR"]
+for ticker in tickers:
+    stock = StockTrading(ticker) # run the class for each ticker
+    print()
+    retrn = stock.highest() # return the highest stocks and compare
+    if retrn[0] > highest_r:
+        highest_r = retrn[0]
+        highest_m = retrn[1]
+        highest_t = retrn[2]
+
+# print to the best result to the output.       
+print("\n----FINAL RESULTS----")
+print(highest_t+" had the highest returns for the "+highest_m+" trading method with a percent return of %"+str(highest_r))
+
+
+#---Upload new CSV files.
+    #time.sleep(20)
+    # url = 'http://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol='+ticker+'&outputsize=full&apikey=NG9C9EPVYBMQT0C8'
+    # req = requests.get(url)
+    # d = json.loads(req.text)
+    
+    # key1 = "Time Series (Daily)"
+    # key2 = "4. close"
+    
+    # prices = []
+    
+    # for date in d[key1]:
+    #     row = []
+    #     row.append(date)
+    #     row.append(d[key1][date][key2])
+        
+    #     prices.append(row)
+    
+    # prices.reverse()
+    
+    # csv_file =  open("final_project/data/"+ticker + ".csv", 'w')
+    # csv_file.write("date"+ ","+ "close"+"\n")
+    # for row in prices:
+    #     csv_file.write(row[0]+ "," + row[1]+"\n")
+        
+    # csv_file.close()
+    # time.sleep(20)
+    
